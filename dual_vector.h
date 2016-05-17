@@ -283,11 +283,12 @@ namespace cudahelpers {
 
 		template <class F>
 		bool commit(F f) {
-			T * const d = this->data();
+			T * const d = data();
+			const int n = m_size;
 			
-			parallel_for(m_size, [f, d](int i) {
+			for (int i = 0; i < n; ++i) {
 				f(d[i], i);
-			});
+			}
 
 			return commit();
 		}
@@ -299,6 +300,26 @@ namespace cudahelpers {
 			}
 			
 			return commit(f);
+		}
+
+		template <class F>
+		bool commit_parallel(F f) {
+			T * const d = data();
+			
+			parallel_for(m_size, [f, d](int i) {
+				f(d[i], i);
+			});
+
+			return commit();
+		}
+
+		template <class F>
+		bool commit_parallel(int n, F f) {
+			if (!resize(n)) {
+				return false;
+			}
+			
+			return commit_parallel(f);
 		}
 
 	private:

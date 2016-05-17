@@ -7,9 +7,9 @@
 // Data is viewed and updated through the host copy, and committed to the device with commit().
 // Data can be retrieved from the device with update().
 
-// commit() has some overloads for setting values and committing in one step, which may be a common pattern.
+// commit() has some overloads for setting values and committing in one step
 
-// Please note that updating a device array is typically much faster with kernels.
+// Please note that updating a device array is typically much faster with kernel functions.
 // This class provides a simple interface at the cost of some performance.
 // Best to use for initializations only, or for unoccasional reinitializations.
 // Also useful for small arrays, which come into use as kernal arguments.

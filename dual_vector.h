@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstring>
+
 #include "cudahelpers.h"
 
 // DualVector manages a device array from the perspective of a local host copy.
@@ -80,6 +82,18 @@ namespace cudahelpers {
 				}
 
 				return false;
+			}
+			
+			void swap(GenericBuffer &b) {
+				T * const data = b.m_data;
+				
+				b.m_data = m_data;
+				m_data = data;
+				
+				const int size = b.m_size;
+				
+				b.m_size = m_size;
+				m_size = size;
 			}
 
 		private:
@@ -178,6 +192,25 @@ namespace cudahelpers {
 			return true;
 		}
 
+		bool shrink_to_fit() {
+			HostBuffer hostBuff;
+			DeviceBuffer deviceBuff;
+			
+			hostBuff.swap(m_hostBuff);
+			deviceBuff.swap(m_deviceBuff);
+			
+			if (!reserve(m_size)) {
+				hostBuff.swap(m_hostBuff);
+				deviceBuff.swap(m_deviceBuff);
+				
+				return false;
+			}
+			
+			memcpy(data(), hostBuff.data(), sizeof(T) * m_size);
+			
+			return true;
+		}
+		
 		bool commit() {
 			if (!m_deviceBuff.resize(m_size)) {
 				return false;
@@ -233,46 +266,28 @@ namespace cudahelpers {
 		}
 
 		T &front() {
-			return m_hostBuff.data()[0];
+			return data()[0];
 		}
 
 		const T &front() const {
-			return m_hostBuff.data()[0];
+			return data()[0];
 		}
 
 		T &back() {
-			return m_hostBuff.data()[m_size - 1];
+			return data()[m_size - 1];
 		}
 
 		const T &back() const {
-			return m_hostBuff.data()[m_size - 1];
-		}
-
-		template <class F>
-		void parallel_for_each(F f) {
-			const int n = m_size;
-			T * const buff = m_hostBuff.data();
-
-			#pragma omp parallel for
-			for (int i = 0; i < n; ++i) {
-				f(buff[i], i);
-			}
-		}
-
-		template <class F>
-		void parallel_for_each(F f) const {
-			const int n = m_size;
-			const T * const buff = m_hostBuff.data();
-
-			#pragma omp parallel for
-			for (int i = 0; i < n; ++i) {
-				f(buff[i], i);
-			}
+			return data()[m_size - 1];
 		}
 
 		template <class F>
 		bool commit(F f) {
-			parallel_for_each(f);
+			T * const d = this->data();
+			
+			parallel_for(m_size, [f, d](int i) {
+				f(d[i], i);
+			});
 
 			return commit();
 		}
@@ -282,10 +297,8 @@ namespace cudahelpers {
 			if (!resize(n)) {
 				return false;
 			}
-
-			parallel_for_each(f);
-
-			return commit();
+			
+			return commit(f);
 		}
 
 	private:

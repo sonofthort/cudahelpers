@@ -18,7 +18,7 @@
 
 namespace cudahelpers {
 	namespace detail {
-		template <class T, class Alloc, class Free>
+		template <class T, class Alloc, class Free, class Realloc>
 		struct GenericBuffer {
 			GenericBuffer() :
 				m_data(NULL),
@@ -63,18 +63,14 @@ namespace cudahelpers {
 				}
 			}
 
-			bool resize(int n) {
+			bool reserve(int n) {
 				if (n <= m_size) {
 					return true;
 				}
 
-				T * const d = (T*)Alloc()(sizeof(T) * n);
+				T * const d = (T*)Realloc()(m_data, m_size, sizeof(T) * n);
 
 				if (d) {
-					if (m_data) {
-						Free()(m_data);
-					}
-
 					m_data = d;
 					m_size = n;
 
@@ -113,6 +109,12 @@ namespace cudahelpers {
 			}
 		};
 
+		struct HostRealloc {
+			void *operator()(void *data, size_t, size_t newSize) const {
+				return realloc(data, newSize);
+			}
+		};
+
 		struct DeviceAlloc {
 			void *operator()(size_t n) const {
 				void *result;
@@ -131,12 +133,38 @@ namespace cudahelpers {
 				cudaFree(data);
 			}
 		};
+
+		struct DeviceRealloc {
+			void *operator()(void *data, size_t oldSize, size_t newSize) const {
+				void * const result = DeviceAlloc()(newSize);
+
+				if (result == NULL) {
+					return NULL;
+				}
+
+				cudaMemcpy(result, data, oldSize, cudaMemcpyDeviceToDevice);
+
+				DeviceFree()(data);
+
+				return result;
+			}
+		};
+
+		template <class T>
+		struct GetHostBuffer {
+			typedef GenericBuffer<T, HostAlloc, HostFree, HostRealloc> type;
+		};
+
+		template <class T>
+		struct GetDeviceBuffer {
+			typedef GenericBuffer<T, DeviceAlloc, DeviceFree, DeviceRealloc> type;
+		};
 	}
 
 	template <class T>
 	class DualVector {
-		typedef detail::GenericBuffer<T, detail::HostAlloc, detail::HostFree> HostBuffer;
-		typedef detail::GenericBuffer<T, detail::DeviceAlloc, detail::DeviceFree> DeviceBuffer;
+		typedef typename detail::GetHostBuffer<T>::type HostBuffer;
+		typedef typename detail::GetDeviceBuffer<T>::type DeviceBuffer;
 
 		DualVector(const DualVector &v);
 
@@ -172,7 +200,7 @@ namespace cudahelpers {
 		}
 
 		bool reserve(int n) {
-			return m_deviceBuff.resize(n) && m_hostBuff.resize(n);
+			return m_deviceBuff.reserve(n) && m_hostBuff.reserve(n);
 		}
 
 		bool resize(int n, const T &v = T()) {
@@ -212,7 +240,7 @@ namespace cudahelpers {
 		}
 		
 		bool commit() {
-			if (!m_deviceBuff.resize(m_size)) {
+			if (!m_deviceBuff.reserve(m_size)) {
 				return false;
 			}
 
@@ -220,7 +248,7 @@ namespace cudahelpers {
 		}
 
 		bool update() {
-			if (!m_hostBuff.resize(m_size)) {
+			if (!m_hostBuff.reserve(m_size)) {
 				return false;
 			}
 
@@ -253,7 +281,7 @@ namespace cudahelpers {
 
 		bool push_back(const T &v) {
 			if (m_hostBuff.size() == m_size) {
-				if (!m_hostBuff.resize(m_size == 0 ? 8 : m_size * 2)) {
+				if (!m_hostBuff.reserve(m_size == 0 ? 8 : m_size * 2)) {
 					return false;
 				}
 			}

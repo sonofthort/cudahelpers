@@ -238,22 +238,6 @@ namespace cudahelpers {
 			
 			return true;
 		}
-		
-		bool commit() {
-			if (!m_deviceBuff.reserve(m_size)) {
-				return false;
-			}
-
-			return cudaSuccess == cudaMemcpy(m_deviceBuff.data(), m_hostBuff.data(), m_size * sizeof(T), cudaMemcpyHostToDevice);
-		}
-
-		bool update() {
-			if (!m_hostBuff.reserve(m_size)) {
-				return false;
-			}
-
-			return cudaSuccess == cudaMemcpy(m_deviceBuff.data(), m_hostBuff.data(), m_size * sizeof(T), cudaMemcpyDeviceToHost);
-		}
 
 		T *begin() {
 			return m_hostBuff.data();
@@ -308,6 +292,14 @@ namespace cudahelpers {
 		const T &back() const {
 			return data()[m_size - 1];
 		}
+		
+		bool commit() {
+			if (!m_deviceBuff.reserve(m_size)) {
+				return false;
+			}
+
+			return cudaSuccess == cudaMemcpy(m_deviceBuff.data(), m_hostBuff.data(), m_size * sizeof(T), cudaMemcpyHostToDevice);
+		}
 
 		template <class F>
 		bool commit(F f) {
@@ -330,24 +322,12 @@ namespace cudahelpers {
 			return commit(f);
 		}
 
-		template <class F>
-		bool commit_parallel(F f) {
-			T * const d = data();
-			
-			parallel_for(m_size, [f, d](int i) {
-				f(d[i], i);
-			});
-
-			return commit();
-		}
-
-		template <class F>
-		bool commit_parallel(int n, F f) {
-			if (!resize(n)) {
+		bool update() {
+			if (!m_hostBuff.reserve(m_size)) {
 				return false;
 			}
-			
-			return commit_parallel(f);
+
+			return cudaSuccess == cudaMemcpy(m_deviceBuff.data(), m_hostBuff.data(), m_size * sizeof(T), cudaMemcpyDeviceToHost);
 		}
 
 	private:

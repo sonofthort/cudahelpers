@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cuda.h>
-#include <omp.h>
+#include <cuda_runtime.h>
 
 namespace cudahelpers {
 	template <class T>
@@ -16,16 +16,11 @@ namespace cudahelpers {
 		return (T*)mem;
 	}
 
-	template <class F>
-	void parallel_for(int begin, int end, F f) {
-		#pragma omp parallel for
-		for (int i = begin; i < end; ++i) {
-			f(i);
-		}
+	int get1DBlockSize(int n, int maxThreadsPerBlock) {
+		return n / maxThreadsPerBlock + (n % maxThreadsPerBlock ? 1 : 0);
 	}
 
-	template <class F>
-	void parallel_for(int end, F f) {
-		return parallel_for(0, end, f);
+	int get1DThreadCount(int n, int maxThreadsPerBlock) {
+		return n < maxThreadsPerBlock ? n : maxThreadsPerBlock;
 	}
 }

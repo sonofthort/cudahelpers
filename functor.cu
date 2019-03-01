@@ -7,6 +7,15 @@
 namespace cudahelpers
 {
 	template <class T>
+	CUDAHELPERS_FUNC const T &minimum(const T &a, const T &b) {
+		return a < b ? a : b;
+	}
+	template <class T>
+	CUDAHELPERS_FUNC const T &maximum(const T &a, const T &b) {
+		return a > b ? a : b;
+	}
+
+	template <class T>
 	struct Ref {
 		CUDAHELPERS_FUNC Ref(T &value) :
 			value(&value)
@@ -42,7 +51,7 @@ namespace cudahelpers
 		return Ref<const T>(value);
 	}
 	
-	template <class T, class = void>
+	template <class T>
 	struct ArrayView {
 		CUDAHELPERS_FUNC ArrayView() :
 			m_data(NULL),
@@ -75,17 +84,56 @@ namespace cudahelpers
 		}
 
 		CUDAHELPERS_FUNC void set(T *data, int size) {
-			m_data = data;
-			m_size = size;
+			*this = ArrayView(data, size);
 		}
 
 		CUDAHELPERS_FUNC void clear() {
-			m_data = NULL;
-			m_size = 0;
+			*this = ArrayView();
 		}
 
 	private:
 		T *m_data;
+		int m_size;
+	};
+	
+	template <class T>
+	struct ChunkView {
+		typedef ArrayView<T> value_type;
+		
+		CUDAHELPERS_FUNC ChunkView() :
+			m_chunkSize(0),
+			m_size(0)
+		{}
+
+		CUDAHELPERS_FUNC ChunkView(value_type data, int chunkSize) :
+			m_data(data),
+			m_chunkSize(chunkSize),
+			m_size(data.size() / chunkSize)
+		{}
+
+		CUDAHELPERS_FUNC int size() const {
+			return m_size;
+		}
+
+		CUDAHELPERS_FUNC int chunk_size() const {
+			return m_chunkSize;
+		}
+
+		CUDAHELPERS_FUNC value_type operator[](int i) const {
+			return value_type(m_data.data() + i * m_chunkSize, m_chunkSize);
+		}
+
+		CUDAHELPERS_FUNC void set(value_type data, int chunkSize) {
+			*this = ChunkView(data, chunkSize);
+		}
+
+		CUDAHELPERS_FUNC void clear() {
+			*this = ChunkView();
+		}
+		
+	private:
+		value_type m_data;
+		int m_chunkSize;
 		int m_size;
 	};
 	
@@ -175,7 +223,31 @@ namespace cudahelpers
 		const int index = blockIdx.x * blockDim.x + threadIdx.x;
 		
 		if (index < size) {
-			func(index, ref(data[index]));
+			func(index, data[index]);
+		}
+	}
+
+	template <class T, class Func>
+	__global__ void kernel_iv(T *data, int numChunks, int chunkSize, Func func) {
+		const int index = blockIdx.x * blockDim.x + threadIdx.x;
+		
+		if (index < numChunks) {
+			const int
+				begin = index * chunkSize,
+				end = begin + chunkSize;
+
+			for (int i = begin; i < end; ++i) {
+				func(i, data[i]);
+			}
+		}
+	}
+
+	template <class T, class Func>
+	__global__ void kernel_iv(T container, Func func) {
+		const int index = blockIdx.x * blockDim.x + threadIdx.x;
+		
+		if (index < container.size()) {
+			func(index, container[index]);
 		}
 	}
 
@@ -219,5 +291,23 @@ namespace cudahelpers
 			cudahelpers::get1DBlockSize(size, maxThreadsPerBlock),
 			cudahelpers::get1DThreadCount(size, maxThreadsPerBlock)
 		>>>(data, size, func);
+	}
+	
+	template <class T, class Func>
+	void iv(T *data, int size, int chunkSize, int maxThreadsPerBlock, Func func) {
+		const int numChunks = size / chunkSize;
+
+		kernel_iv<<<
+			cudahelpers::get1DBlockSize(numChunks, maxThreadsPerBlock),
+			cudahelpers::get1DThreadCount(numChunks, maxThreadsPerBlock)
+		>>>(data, numChunks, chunkSize, func);
+	}
+	
+	template <class T, class Func>
+	void iv(T container, int maxThreadsPerBlock, Func func) {
+		kernel_iv<<<
+			cudahelpers::get1DBlockSize(container.size(), maxThreadsPerBlock),
+			cudahelpers::get1DThreadCount(container.size(), maxThreadsPerBlock)
+		>>>(container, func);
 	}
 }
